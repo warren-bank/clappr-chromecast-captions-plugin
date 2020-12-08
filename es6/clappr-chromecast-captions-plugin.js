@@ -36,13 +36,11 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
   }
 
   get externalTracks() {
-    let externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null)
-    if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return []
+    const externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null)
 
-    externalTracks = externalTracks.filter(track => track.kind === 'subtitles')
-    if (!externalTracks.length) return []
-
-    return externalTracks
+    return (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length)
+      ? []
+      : externalTracks.filter(track => track.kind === 'subtitles')
   }
 
   get activeTrackIds() {
