@@ -6,6 +6,8 @@
 class ChromecastCaptionsPlugin extends ChromecastPlugin {
   constructor(core) {
     super(core)
+
+    this.activeTrackId = -1
   }
 
   containerChanged() {
@@ -33,8 +35,21 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
     textTracks[0].track.mode = 'showing'
   }
 
+  get externalTracks() {
+    let externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null)
+    if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return []
+
+    externalTracks = externalTracks.filter(track => track.kind === 'subtitles')
+    if (!externalTracks.length) return []
+
+    return externalTracks
+  }
+
   get activeTrackIds() {
-    const trackId = this.container.closedCaptionsTrackId
+    const trackId = (!this.session || !this.mediaSession)
+      ? this.container.closedCaptionsTrackId
+      : this.activeTrackId
+
     return (trackId >= 0)
       ? [trackId]
       : []
@@ -83,10 +98,7 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
   //   https://developers.google.com/cast/docs/chrome_sender/advanced
   // ---------------------------------------------
   createMediaTracks() {
-    let externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null)
-    if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return null
-
-    externalTracks = externalTracks.filter(track => track.kind === 'subtitles')
+    const externalTracks = this.externalTracks
     if (!externalTracks.length) return null
 
     const textTracks = this.container.closedCaptionsTracks  // [{id, name, track}]
@@ -141,10 +153,62 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
   //   https://developers.google.com/cast/docs/reference/chrome/chrome.cast.media.EditTracksInfoRequest
   //   https://developers.google.com/cast/docs/reference/chrome/chrome.cast.media.Media#editTracksInfo
   subtitleChanged(track) {
+    this.activeTrackId = track.id
+
     if (!this.session || !this.mediaSession) return
 
     const request = new chrome.cast.media.EditTracksInfoRequest(this.activeTrackIds)
     this.mediaSession.editTracksInfo(request)
+  }
+
+  loadMediaSuccess(how, mediaSession) {
+    super.loadMediaSuccess(how, mediaSession)
+
+    // monkey patch ChromecastPlayback
+
+    let externalTracks = this.externalTracks
+    if (!externalTracks.length) return
+
+    externalTracks = externalTracks.map((externalTrack, index) => ({
+      id:    index,
+      name:  externalTrack.label,
+      track: {
+        id:      "",
+        mode:    ((index === this.activeTrackId) ? "showing" : "disabled"),
+        kind:     externalTrack.kind,
+        label:    externalTrack.label,
+        language: externalTrack.lang
+      }
+    }))
+
+    Object.defineProperty(this.playbackProxy, "hasClosedCaptionsTracks", {
+      configurable: false,
+      enumerable:   false,
+      writable:     false,
+      value:        true
+    })
+
+    Object.defineProperty(this.playbackProxy, "closedCaptionsTracks", {
+      configurable: false,
+      enumerable:   false,
+      writable:     false,
+      value:        externalTracks
+    })
+
+    Object.defineProperty(this.playbackProxy, "closedCaptionsTrackId", {
+      configurable: false,
+      enumerable:   false,
+      get:          ()   => this.activeTrackId,
+      set:          (id) => {
+        if (id === this.activeTrackId) return
+
+        this.activeTrackId = id
+
+        this.playbackProxy.trigger(Clappr.Events.PLAYBACK_SUBTITLE_CHANGED, {id})
+      }
+    })
+
+    this.playbackProxy.trigger(Clappr.Events.PLAYBACK_SUBTITLE_AVAILABLE)
   }
 }
 

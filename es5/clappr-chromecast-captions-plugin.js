@@ -171,9 +171,13 @@
     var _super = _createSuper(ChromecastCaptionsPlugin);
 
     function ChromecastCaptionsPlugin(core) {
+      var _this;
+
       _classCallCheck(this, ChromecastCaptionsPlugin);
 
-      return _super.call(this, core);
+      _this = _super.call(this, core);
+      _this.activeTrackId = -1;
+      return _this;
     }
 
     _createClass(ChromecastCaptionsPlugin, [{
@@ -208,7 +212,7 @@
     }, {
       key: "loadMedia",
       value: function loadMedia() {
-        var _this = this;
+        var _this2 = this;
 
         this.container.pause();
         var src = this.container.options.src;
@@ -223,9 +227,9 @@
         }
 
         this.session.loadMedia(request, function (mediaSession) {
-          return _this.loadMediaSuccess('loadMedia', mediaSession);
+          return _this2.loadMediaSuccess('loadMedia', mediaSession);
         }, function (e) {
-          return _this.loadMediaError(e);
+          return _this2.loadMediaError(e);
         });
       }
     }, {
@@ -244,11 +248,7 @@
     }, {
       key: "createMediaTracks",
       value: function createMediaTracks() {
-        var externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null);
-        if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return null;
-        externalTracks = externalTracks.filter(function (track) {
-          return track.kind === 'subtitles';
-        });
+        var externalTracks = this.externalTracks;
         if (!externalTracks.length) return null;
         var textTracks = this.container.closedCaptionsTracks; // [{id, name, track}]
 
@@ -270,14 +270,78 @@
     }, {
       key: "subtitleChanged",
       value: function subtitleChanged(track) {
+        this.activeTrackId = track.id;
         if (!this.session || !this.mediaSession) return;
         var request = new chrome.cast.media.EditTracksInfoRequest(this.activeTrackIds);
         this.mediaSession.editTracksInfo(request);
       }
     }, {
+      key: "loadMediaSuccess",
+      value: function loadMediaSuccess(how, mediaSession) {
+        var _this3 = this;
+
+        _get(_getPrototypeOf(ChromecastCaptionsPlugin.prototype), "loadMediaSuccess", this).call(this, how, mediaSession); // monkey patch ChromecastPlayback
+
+
+        var externalTracks = this.externalTracks;
+        if (!externalTracks.length) return;
+        externalTracks = externalTracks.map(function (externalTrack, index) {
+          return {
+            id: index,
+            name: externalTrack.label,
+            track: {
+              id: "",
+              mode: index === _this3.activeTrackId ? "showing" : "disabled",
+              kind: externalTrack.kind,
+              label: externalTrack.label,
+              language: externalTrack.lang
+            }
+          };
+        });
+        Object.defineProperty(this.playbackProxy, "hasClosedCaptionsTracks", {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: true
+        });
+        Object.defineProperty(this.playbackProxy, "closedCaptionsTracks", {
+          configurable: false,
+          enumerable: false,
+          writable: false,
+          value: externalTracks
+        });
+        Object.defineProperty(this.playbackProxy, "closedCaptionsTrackId", {
+          configurable: false,
+          enumerable: false,
+          get: function get() {
+            return _this3.activeTrackId;
+          },
+          set: function set(id) {
+            if (id === _this3.activeTrackId) return;
+            _this3.activeTrackId = id;
+
+            _this3.playbackProxy.trigger(Clappr.Events.PLAYBACK_SUBTITLE_CHANGED, {
+              id: id
+            });
+          }
+        });
+        this.playbackProxy.trigger(Clappr.Events.PLAYBACK_SUBTITLE_AVAILABLE);
+      }
+    }, {
+      key: "externalTracks",
+      get: function get() {
+        var externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null);
+        if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return [];
+        externalTracks = externalTracks.filter(function (track) {
+          return track.kind === 'subtitles';
+        });
+        if (!externalTracks.length) return [];
+        return externalTracks;
+      }
+    }, {
       key: "activeTrackIds",
       get: function get() {
-        var trackId = this.container.closedCaptionsTrackId;
+        var trackId = !this.session || !this.mediaSession ? this.container.closedCaptionsTrackId : this.activeTrackId;
         return trackId >= 0 ? [trackId] : [];
       }
     }], [{
