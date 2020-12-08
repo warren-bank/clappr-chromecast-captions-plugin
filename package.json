@@ -1,0 +1,27 @@
+{
+  "name": "@warren-bank/clappr-chromecast-captions-plugin",
+  "private": true,
+  "license": "GPL-2.0",
+  "devDependencies": {
+    "@babel/cli": "*",
+    "@babel/core": "*",
+    "@babel/preset-env": "*",
+    "@babel/plugin-proposal-class-properties": "*",
+    "babel-plugin-iife-wrap": "*"
+  },
+  "babel": {
+    "passPerPreset": true,
+    "presets": [
+      "@babel/preset-env",
+      {
+        "plugins": ["iife-wrap"]
+      }
+    ],
+    "plugins": [
+      "@babel/plugin-proposal-class-properties"
+    ]
+  },
+  "scripts": {
+    "build": "babel es6/clappr-chromecast-captions-plugin.js --out-file es5/clappr-chromecast-captions-plugin.js --source-maps"
+  }
+}
