@@ -19,6 +19,41 @@
     return _typeof(obj);
   }
 
+  function _toConsumableArray(arr) {
+    return _arrayWithoutHoles(arr) || _iterableToArray(arr) || _unsupportedIterableToArray(arr) || _nonIterableSpread();
+  }
+
+  function _nonIterableSpread() {
+    throw new TypeError("Invalid attempt to spread non-iterable instance.\nIn order to be iterable, non-array objects must have a [Symbol.iterator]() method.");
+  }
+
+  function _unsupportedIterableToArray(o, minLen) {
+    if (!o) return;
+    if (typeof o === "string") return _arrayLikeToArray(o, minLen);
+    var n = Object.prototype.toString.call(o).slice(8, -1);
+    if (n === "Object" && o.constructor) n = o.constructor.name;
+    if (n === "Map" || n === "Set") return Array.from(o);
+    if (n === "Arguments" || /^(?:Ui|I)nt(?:8|16|32)(?:Clamped)?Array$/.test(n)) return _arrayLikeToArray(o, minLen);
+  }
+
+  function _iterableToArray(iter) {
+    if (typeof Symbol !== "undefined" && Symbol.iterator in Object(iter)) return Array.from(iter);
+  }
+
+  function _arrayWithoutHoles(arr) {
+    if (Array.isArray(arr)) return _arrayLikeToArray(arr);
+  }
+
+  function _arrayLikeToArray(arr, len) {
+    if (len == null || len > arr.length) len = arr.length;
+
+    for (var i = 0, arr2 = new Array(len); i < len; i++) {
+      arr2[i] = arr[i];
+    }
+
+    return arr2;
+  }
+
   function _classCallCheck(instance, Constructor) {
     if (!(instance instanceof Constructor)) {
       throw new TypeError("Cannot call a class as a function");
@@ -165,6 +200,43 @@
     return obj;
   }
 
+  var HLSJS = null;
+
+  var getInternalTracks = function getInternalTracks() {
+    return !HLSJS ? [] : HLSJS.subtitleTracks.map(function (subtitleTrack) {
+      return {
+        kind: 'subtitles',
+        src: subtitleTrack.url,
+        lang: subtitleTrack.lang,
+        label: subtitleTrack.name
+      };
+    });
+  };
+
+  {
+    var HlsjsPlayback = Clappr.HLS.prototype;
+    var _setup = HlsjsPlayback._setup;
+    var stop = HlsjsPlayback.stop;
+    var destroy = HlsjsPlayback.destroy;
+
+    HlsjsPlayback._setup = function () {
+      _setup.call(this);
+
+      HLSJS = this._hls;
+      this.trigger(Clappr.Events.PLAYBACK_READY, this.name);
+    };
+
+    HlsjsPlayback.stop = function () {
+      stop.call(this);
+      HLSJS = null;
+    };
+
+    HlsjsPlayback.destroy = function () {
+      destroy.call(this);
+      HLSJS = null;
+    };
+  }
+
   var ChromecastCaptionsPlugin = function (_ChromecastPlugin) {
     _inherits(ChromecastCaptionsPlugin, _ChromecastPlugin);
 
@@ -198,14 +270,12 @@
     }, {
       key: "initializeTextTracks",
       value: function initializeTextTracks() {
-        var textTracks = this.container.closedCaptionsTracks; // [{id, name, track}]
-
+        var textTracks = this.container.closedCaptionsTracks;
         if (!textTracks || !textTracks.length) return;
 
         for (var i = 0; i < textTracks.length; i++) {
           if (textTracks[i].track.mode === 'showing') return;
-        } // turn on the first subtitles text track (which is always "Disabled") to display the "CC" icon/menu in the media-control panel
-
+        }
 
         textTracks[0].track.mode = 'showing';
       }
@@ -248,21 +318,15 @@
     }, {
       key: "createMediaTracks",
       value: function createMediaTracks() {
-        var externalTracks = this.externalTracks;
-        if (!externalTracks.length) return null;
-        var textTracks = this.container.closedCaptionsTracks; // [{id, name, track}]
-
-        if (!textTracks || !Array.isArray(textTracks) || textTracks.length < externalTracks.length) return null; // UNSAFE ASSUMPTIONS:
-        //  1. textTracks[i] corresponds to externalTracks[i]
-
-        return externalTracks.map(function (externalTrack, index) {
-          var textTrack = textTracks[index];
-          var track = new chrome.cast.media.Track(textTrack.id, chrome.cast.media.TrackType.TEXT);
-          track.trackContentId = externalTrack.src;
-          track.trackContentType = ChromecastCaptionsPlugin.subtitleMimeTypeFor(externalTrack.src);
+        var combinedTracks = [].concat(_toConsumableArray(this.externalTracks), _toConsumableArray(getInternalTracks()));
+        if (!combinedTracks.length) return null;
+        return combinedTracks.map(function (textTrack, index) {
+          var track = new chrome.cast.media.Track(index, chrome.cast.media.TrackType.TEXT);
+          track.trackContentId = textTrack.src;
+          track.trackContentType = ChromecastCaptionsPlugin.subtitleMimeTypeFor(textTrack.src);
           track.subtype = chrome.cast.media.TextTrackType.SUBTITLES;
-          track.language = externalTrack.lang || textTrack.track.language;
-          track.name = externalTrack.label || textTrack.name;
+          track.language = textTrack.lang;
+          track.name = textTrack.label;
           track.customData = null;
           return track;
         });
@@ -280,21 +344,20 @@
       value: function loadMediaSuccess(how, mediaSession) {
         var _this3 = this;
 
-        _get(_getPrototypeOf(ChromecastCaptionsPlugin.prototype), "loadMediaSuccess", this).call(this, how, mediaSession); // monkey patch ChromecastPlayback
+        _get(_getPrototypeOf(ChromecastCaptionsPlugin.prototype), "loadMediaSuccess", this).call(this, how, mediaSession);
 
-
-        var externalTracks = this.externalTracks;
-        if (!externalTracks.length) return;
-        externalTracks = externalTracks.map(function (externalTrack, index) {
+        var combinedTracks = [].concat(_toConsumableArray(this.externalTracks), _toConsumableArray(getInternalTracks()));
+        if (!combinedTracks.length) return;
+        var textTracks = combinedTracks.map(function (textTrack, index) {
           return {
             id: index,
-            name: externalTrack.label,
+            name: textTrack.label,
             track: {
               id: "",
               mode: index === _this3.activeTrackId ? "showing" : "disabled",
-              kind: externalTrack.kind,
-              label: externalTrack.label,
-              language: externalTrack.lang
+              kind: textTrack.kind,
+              label: textTrack.label,
+              language: textTrack.lang
             }
           };
         });
@@ -308,7 +371,7 @@
           configurable: false,
           enumerable: false,
           writable: false,
-          value: externalTracks
+          value: textTracks
         });
         Object.defineProperty(this.playbackProxy, "closedCaptionsTrackId", {
           configurable: false,
@@ -331,12 +394,9 @@
       key: "externalTracks",
       get: function get() {
         var externalTracks = this.core.options.externalTracks || (this.core.options.playback ? this.core.options.playback.externalTracks : null);
-        if (!externalTracks || !Array.isArray(externalTracks) || !externalTracks.length) return [];
-        externalTracks = externalTracks.filter(function (track) {
+        return !externalTracks || !Array.isArray(externalTracks) || !externalTracks.length ? [] : externalTracks.filter(function (track) {
           return track.kind === 'subtitles';
         });
-        if (!externalTracks.length) return [];
-        return externalTracks;
       }
     }, {
       key: "activeTrackIds",
@@ -358,23 +418,14 @@
 
   _defineProperty(ChromecastCaptionsPlugin, "MIMETYPES", {
     ".vtt": "text/vtt",
-    // WebVTT
     ".srt": "application/x-subrip",
-    // SubRip
     ".ttml": "application/ttml+xml",
-    // Timed Text
     ".cap": "application/x-cheetah-cap",
-    // Cheetah
     ".scc": "text/x-scc",
-    // Scenarist
     ".dxfp": "application/ttaf+xml",
-    // DXFP (Netflix)
     ".mcc": "text/x-mcc",
-    // MacCaption (Adobe)
     ".stl": "text/x-stl",
-    // Spruce
-    ".qt.txt": "application/x-quicktime-timedtext" // Quicktime Timed Text
-
+    ".qt.txt": "application/x-quicktime-timedtext"
   });
 
   _defineProperty(ChromecastCaptionsPlugin, "FILE_EXTENSION_PATTERN", /^.*?((?:\.[^\.\/]+)+)([\?#].*)?$/i);

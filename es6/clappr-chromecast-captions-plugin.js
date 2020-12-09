@@ -1,7 +1,72 @@
-// requirements:
+// -----------------------------------------------------------------------------
+// ES6 requirements:
 //   1) Chrome 72+
-//      * ES6 static class fields
+//      * static class fields
 //          https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Classes#Browser_compatibility
+// -----------------------------------------------------------------------------
+
+// -----------------------------------------------------------------------------
+// monkey patch HlsjsPlayback
+//
+// purpose:
+//   when HlsjsPlayback is active, hold a copy of its "hls.js" instance,
+//   which is aware of all in-stream (subtitle) text tracks.
+//
+// references:
+//   https://github.com/clappr/hlsjs-playback/blob/master/src/hls.js
+//   https://github.com/video-dev/hls.js/blob/master/docs/API.md
+
+let HLSJS = null
+
+const getInternalTracks = () => {
+  return (!HLSJS)
+    ? []
+    : HLSJS.subtitleTracks.map(subtitleTrack => ({
+        kind:  'subtitles',
+        src:   subtitleTrack.url,
+        lang:  subtitleTrack.lang,
+        label: subtitleTrack.name
+      }))
+}
+
+{
+  const HlsjsPlayback = Clappr.HLS.prototype
+
+  // setup
+  const _setup  = HlsjsPlayback._setup
+
+  // teardown
+  const stop    = HlsjsPlayback.stop
+  const destroy = HlsjsPlayback.destroy
+
+  HlsjsPlayback._setup = function(){  // note: don't use arrow function; need 'this' to refer to the instance of HlsjsPlayback
+    _setup.call(this)
+
+    HLSJS = this._hls
+    this.trigger(Clappr.Events.PLAYBACK_READY, this.name)
+
+    /*
+    this._hls.on(Clappr.HLS.HLSJS.Events.SUBTITLE_TRACK_LOADING, (evt, data) => {
+      const {url, id} = data
+      console.log(url, this._hls.subtitleTracks)
+    })
+    */
+  }
+
+  HlsjsPlayback.stop = function(){  // note: don't use arrow function; need 'this' to refer to the instance of HlsjsPlayback
+    stop.call(this)
+
+    HLSJS = null
+  }
+
+  HlsjsPlayback.destroy = function(){  // note: don't use arrow function; need 'this' to refer to the instance of HlsjsPlayback
+    destroy.call(this)
+
+    HLSJS = null
+  }
+}
+
+// -----------------------------------------------------------------------------
 
 class ChromecastCaptionsPlugin extends ChromecastPlugin {
   constructor(core) {
@@ -96,24 +161,16 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
   //   https://developers.google.com/cast/docs/chrome_sender/advanced
   // ---------------------------------------------
   createMediaTracks() {
-    const externalTracks = this.externalTracks
-    if (!externalTracks.length) return null
+    const combinedTracks = [...this.externalTracks, ...getInternalTracks()]
+    if (!combinedTracks.length) return null
 
-    const textTracks = this.container.closedCaptionsTracks  // [{id, name, track}]
-    if (!textTracks || !Array.isArray(textTracks) || (textTracks.length < externalTracks.length)) return null
-
-    // UNSAFE ASSUMPTIONS:
-    //  1. textTracks[i] corresponds to externalTracks[i]
-
-    return externalTracks.map((externalTrack, index) => {
-      const textTrack        = textTracks[index]
-
-      const track            = new chrome.cast.media.Track(textTrack.id, chrome.cast.media.TrackType.TEXT)
-      track.trackContentId   = externalTrack.src
-      track.trackContentType = ChromecastCaptionsPlugin.subtitleMimeTypeFor(externalTrack.src)
+    return combinedTracks.map((textTrack, index) => {
+      const track            = new chrome.cast.media.Track(index, chrome.cast.media.TrackType.TEXT)
+      track.trackContentId   = textTrack.src
+      track.trackContentType = ChromecastCaptionsPlugin.subtitleMimeTypeFor(textTrack.src)
       track.subtype          = chrome.cast.media.TextTrackType.SUBTITLES
-      track.language         = externalTrack.lang  || textTrack.track.language
-      track.name             = externalTrack.label || textTrack.name
+      track.language         = textTrack.lang
+      track.name             = textTrack.label
       track.customData       = null
 
       return track
@@ -164,18 +221,18 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
 
     // monkey patch ChromecastPlayback
 
-    let externalTracks = this.externalTracks
-    if (!externalTracks.length) return
+    const combinedTracks = [...this.externalTracks, ...getInternalTracks()]
+    if (!combinedTracks.length) return
 
-    externalTracks = externalTracks.map((externalTrack, index) => ({
+    const textTracks = combinedTracks.map((textTrack, index) => ({
       id:    index,
-      name:  externalTrack.label,
+      name:  textTrack.label,
       track: {
         id:      "",
         mode:    ((index === this.activeTrackId) ? "showing" : "disabled"),
-        kind:     externalTrack.kind,
-        label:    externalTrack.label,
-        language: externalTrack.lang
+        kind:     textTrack.kind,
+        label:    textTrack.label,
+        language: textTrack.lang
       }
     }))
 
@@ -190,7 +247,7 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
       configurable: false,
       enumerable:   false,
       writable:     false,
-      value:        externalTracks
+      value:        textTracks
     })
 
     Object.defineProperty(this.playbackProxy, "closedCaptionsTrackId", {

@@ -22,6 +22,6 @@
     ]
   },
   "scripts": {
-    "build": "babel es6/clappr-chromecast-captions-plugin.js --out-file es5/clappr-chromecast-captions-plugin.js --source-maps"
+    "build": "babel es6/clappr-chromecast-captions-plugin.js --out-file es5/clappr-chromecast-captions-plugin.js --no-comments --source-maps"
   }
 }
