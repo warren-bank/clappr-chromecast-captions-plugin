@@ -191,7 +191,7 @@ class ChromecastCaptionsPlugin extends ChromecastPlugin {
     ".qt.txt": "application/x-quicktime-timedtext"  // Quicktime Timed Text
   }
 
-  static FILE_EXTENSION_PATTERN = /^.*?((?:\.[^\.\/]+)+)([\?#].*)?$/i
+  static FILE_EXTENSION_PATTERN = /^.*?((?:\.[^\.\/]+)+)(?:[\?#].*)?$/i
 
   static subtitleMimeTypeFor(url) {
     if (!ChromecastCaptionsPlugin.FILE_EXTENSION_PATTERN.test(url))
